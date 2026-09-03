@@ -1,1 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>S2S Atmospheric Forecasting Pipeline</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 0 20px;
+            color: #333;
+        }
+        h1, h2 { color: #111; }
+        h1 { border-bottom: 2px solid #eee; padding-bottom: 10px; }
+        p { text-align: justify; }
+        ul { margin-bottom: 20px; }
+        li { margin-bottom: 5px; }
+        
+        /* Universal equation styles that work offline */
+        .math-inline {
+            font-family: "Cambria Math", "Times New Roman", serif;
+            font-style: italic;
+            padding: 0 2px;
+            font-weight: bold;
+        }
+        .math-block {
+            display: block;
+            text-align: center;
+            font-family: "Cambria Math", "Times New Roman", serif;
+            font-size: 1.25em;
+            margin: 20px 0;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>A Persistent Homology and Machine Learning Pipeline for Subseasonal-to-Seasonal Forecasting of Atmospheric Rivers</h1>
+
+    <h2>1. Introduction</h2>
+    <p>Subseasonal-to-Seasonal (S2S) atmospheric forecasting—spanning lead times of two weeks to two months—represents a critical gap in predictive capability. Standard Numerical Weather Prediction (NWP) relies on the integration of continuous partial differential equations (Navier-Stokes and Euler) over highly resolved spatial grids. At S2S timescales, these integrations are notoriously susceptible to chaotic error growth, where high-frequency local perturbations overwhelm the macroscopic signal of the climate regime.</p>
+    
+    <p>Recent machine learning approaches have attempted to bypass NWP limits by applying Convolutional Weather Networks (CNNs) directly to these atmospheric grids. However, these models frequently overfit to local spatial noise and struggle to extract scale-invariant structural features. This paper introduces an alternative computational pipeline utilizing Topological Data Analysis (TDA)—specifically persistent homology. Rather than processing raw continuous grid data, we employ TDA as a rigorous feature extraction and noise-filtration step. By transforming scalar atmospheric fields into a sequence of cubical complexes, we compute discrete topological invariants (Betti numbers) that are robust to high-frequency grid noise. To make this topological data compatible with statistical learning, we map the resulting point clouds into a Banach space via Persistence Landscapes, perform linear dimensionality reduction, and ingest the latent vectors into a Random Forest regressor. This pipeline mechanically isolates the dominant structural features of atmospheric rivers (ARs) to provide a computationally stable feature space for S2S regression.</p>
+
+    <h2>2. Data and Domain Discretization</h2>
+    <p>The pipeline is validated using 44 years of NASA MERRA-2 reanalysis data (1980–2024). We extract daily averaged continuous scalar fields over a fixed spatial bounding box encompassing the Central Pacific and the North American West Coast. The domain is discretized as a 2D scalar array <span class="math-inline">A</span> of size <span class="math-inline">N &times; M</span>. We extract two distinct fields to separate the kinematic setup from the hydrologic target:</p>
+    <ul>
+        <li><strong>The Predictor (<span class="math-inline">Z<sub>500</sub></span>):</strong> 500 hPa Geopotential Height anomalies, capturing macroscopic planetary wave propagation.</li>
+        <li><strong>The Predictand (VIMH):</strong> Vertically Integrated Moist Helicity, isolating the specific scalar magnitude of the AR moisture transport.</li>
+    </ul>
+
+    <h2>3. Topological Filtration and Matrix Reduction</h2>
+    <p>To extract structural features, we map the scalar grid <span class="math-inline">A</span> to a cubical complex, which serves as the discrete analog to a continuous manifold. We apply a superlevel set filtration. For a continuously decreasing threshold <span class="math-inline">&nu;</span>, we define a sequence of sub-complexes <span class="math-inline">K<sub>&nu;</sub></span> consisting of all grid cells where the scalar value is greater than or equal to <span class="math-inline">&nu;</span>. This yields a nested sequence of topological spaces:</p>
+    
+    <div class="math-block">
+        K<sub>&nu;<sub>0</sub></sub> &sube; K<sub>&nu;<sub>1</sub></sub> &sube; &hellip; &sube; K<sub>&nu;<sub>n</sub></sub> = K
+    </div>
+    
+    <p>To extract the topological invariants across this filtration, we construct a boundary matrix representing the connectivity of the cubical complex. By performing Gaussian elimination over the finite field <span class="math-inline">&#8484;<sub>2</sub></span>, we compute the kernel and image of the boundary operators to find the <span class="math-inline">n</span>-th homology groups. We track two specific Betti numbers:</p>
+    <ul>
+        <li><span class="math-inline">&beta;<sub>0</sub></span>: The rank of the 0-th homology group, counting the number of connected components.</li>
+        <li><span class="math-inline">&beta;<sub>1</sub></span>: The rank of the 1-st homology group, counting the number of 1-dimensional homological cycles.</li>
+    </ul>
+    <p>For every topological feature <span class="math-inline">c</span>, we record the threshold at which its homological class is generated (<span class="math-inline">b<sub>i</sub></span>) and the threshold at which it merges with an older class (<span class="math-inline">d<sub>i</sub></span>). This produces a discrete set of 2D points <span class="math-inline">(b<sub>i</sub>, d<sub>i</sub>)</span> known as a <em>Persistence Diagram</em>.</p>
+
+    <h2>4. Functional Mapping and Dimensionality Reduction</h2>
+    <p>Persistence Diagrams are unstructured point clouds. They lack a well-defined Hilbert or Banach space structure, meaning standard linear algebra and machine learning operations cannot be directly applied. To resolve this, we vectorize the topological data using Persistence Landscapes. We map each point <span class="math-inline">(b<sub>i</sub>, d<sub>i</sub>)</span> to a set of piecewise linear functions, thereby embedding the discrete topological signature into a continuous Banach space <span class="math-inline">L<sup>p</sup></span>.</p>
+    
+    <p>To capture the temporal evolution of the planetary wave over the S2S timeframe, we concatenate an 8-week (56-day) sliding window of these daily landscapes. Because this concatenation results in a high-dimensional feature space susceptible to the curse of dimensionality, we perform linear dimensionality reduction. We apply Singular Value Decomposition (SVD) to extract the principal components of the temporal landscape matrix, retaining the top <span class="math-inline">k</span> eigenvectors that cumulatively explain 95% of the variance.</p>
+
+    <h2>5. Spatial Augmentation and Regression</h2>
+    <p>Because persistent homology is translation-invariant, the PCA latent vector contains no geographic data—an inherent limitation when forecasting regional landfalls. To break this spatial degeneracy, we compute the Cartesian centroid coordinates (latitude and longitude) of the highest-persistence <span class="math-inline">&beta;<sub>0</sub></span> components at each timestep. These coordinates are concatenated onto the PCA latent vector.</p>
+    
+    <p>This final feature matrix is ingested into an ensemble of decision trees (a Random Forest regressor) optimized to minimize Mean Squared Error (MSE). The model maps the 8-week <span class="math-inline">Z<sub>500</sub></span> topological trajectory to the future maximum persistence of the VIMH field, providing a quantitative prediction of AR intensity.</p>
+
+    <h2>6. Validation and Conclusion</h2>
+    <p>The pipeline was tested against the 2022–2023 sequence of Sierra Nevada ARs. During execution on the MERRA-2 data, the superlevel set filtration successfully segmented the continuous VIMH fields into singular <span class="math-inline">&beta;<sub>0</sub></span> connected components. The moment of AR landfall—where mountain-induced drag physically fragments the moisture flow—was computationally identified as the rapid termination (death) of the dominant <span class="math-inline">&beta;<sub>0</sub></span> class.</p>
+    
+    <p>By mechanically converting continuous atmospheric grids into cubical complexes, applying algebraic matrix reduction, embedding the outputs into a Banach space, and compressing the variance, this pipeline demonstrates a mathematically rigorous method for S2S feature extraction. It effectively bypasses the continuous integration errors of standard NWP, providing a stable, discrete predictive framework for extreme weather regimes.</p>
+
+</body>
+</html>
 
